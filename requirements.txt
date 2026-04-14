@@ -1,0 +1,6 @@
+python-telegram-bot==20.7
+yt-dlp
+ffmpeg-python
+requests
+python-dotenv>=1.0.0
+spotipy>=2.22.0
