@@ -32,17 +32,15 @@ jobs:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-      run: |
-        # Script per verificare che il bot possa essere inizializzato
-        python -c "
+      run: python << 'EOF'
 import sys
 import os
 from pathlib import Path
 
 # Simula le variabili di ambiente
-os.environ['TELEGRAM_TOKEN'] = '${{ secrets.TELEGRAM_TOKEN }}'
-os.environ['SPOTIFY_CLIENT_ID'] = '${{ secrets.SPOTIFY_CLIENT_ID }}'
-os.environ['SPOTIFY_CLIENT_SECRET'] = '${{ secrets.SPOTIFY_CLIENT_SECRET }}'
+os.environ['TELEGRAM_TOKEN'] = os.getenv('TELEGRAM_TOKEN', '')
+os.environ['SPOTIFY_CLIENT_ID'] = os.getenv('SPOTIFY_CLIENT_ID', '')
+os.environ['SPOTIFY_CLIENT_SECRET'] = os.getenv('SPOTIFY_CLIENT_SECRET', '')
 
 # Verifica che i moduli siano importabili
 try:
@@ -53,7 +51,7 @@ try:
 except ImportError as e:
     print(f'✗ Import error: {e}')
     sys.exit(1)
-"
+EOF
 
     - name: Notify on success
       if: success()
