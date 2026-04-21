@@ -168,7 +168,7 @@ async def handle_text(update, context):
             await msg.edit_text("❌ Non sono riuscito a estrarre i brani dai link forniti.")
             return
 
-        MAX_BATCH = 30
+        MAX_BATCH = 180
         troncato = len(titles) > MAX_BATCH
         if troncato:
             titles = titles[:MAX_BATCH]
@@ -279,16 +279,24 @@ async def _process_track_list(message, titles: list[str]):
     os.makedirs(batch_dir, exist_ok=True)
     
     downloaded_files = []
+    failed_tracks = []
+    
+    # Messaggio di progress unico che sarà aggiornato
+    progress_msg = await message.reply_text(f"⏳ Inizio download di {len(titles)} brani...\n0/{len(titles)} completati")
+
+    # Aggiorna il messaggio solo ogni UPDATE_EVERY brani (o sull'ultimo)
+    # per evitare il rate limit di Telegram (~30 edit/min)
+    UPDATE_EVERY = 5
 
     # 1. Download di tutti i brani
-    for t in titles:
+    for idx, t in enumerate(titles, 1):
         try:
-            await message.reply_text(f"🔎 Cerco: *{t}* ...", parse_mode="Markdown")
             loop = asyncio.get_running_loop()
             results = await loop.run_in_executor(None, partial(ydl_search, t, 1))
 
             if not results:
-                await message.reply_text(f"❌ Nessun risultato per: {t}")
+                failed_tracks.append(t)
+                await asyncio.sleep(0.5)  # Rate limiting
                 continue
 
             url = results[0].get("webpage_url")
@@ -297,22 +305,39 @@ async def _process_track_list(message, titles: list[str]):
             # Passiamo la directory isolata
             path, _ = await download_and_get_path(url, batch_dir)
             if not path:
-                await message.reply_text(f"❌ Download fallito: {found_title}")
+                failed_tracks.append(found_title)
+                await asyncio.sleep(0.5)
                 continue
 
             downloaded_files.append(path)
-            await message.reply_text(f"✅ Scaricato: *{found_title}*", parse_mode="Markdown")
+            
+            # Aggiorna progress solo ogni N brani o sull'ultimo
+            if idx % UPDATE_EVERY == 0 or idx == len(titles):
+                try:
+                    await progress_msg.edit_text(
+                        f"⏳ Download in corso...\n"
+                        f"{idx}/{len(titles)} completati "
+                        f"({len(downloaded_files)} ✅ · {len(failed_tracks)} ❌)\n"
+                        f"🎵 Ultimo: {found_title[:50]}",
+                    )
+                except Exception:
+                    pass  # Ignora errori di edit (es. messaggio identico)
+            
+            # Rate limiting tra i download
+            if idx < len(titles):
+                await asyncio.sleep(1)
 
         except Exception as e:
-            await message.reply_text(f"❌ Errore per '{t}': {e}")
+            failed_tracks.append(f"{t} ({str(e)[:30]})")
+            await asyncio.sleep(0.5)
 
     if not downloaded_files:
-        await message.reply_text("❌ Nessun brano scaricato con successo.")
+        await progress_msg.edit_text("❌ Nessun brano scaricato con successo.")
         shutil.rmtree(batch_dir, ignore_errors=True)
         return
 
     # 2. Creazione degli archivi ZIP (Gestione limite 50MB di Telegram)
-    await message.reply_text("📦 Compressione file in corso...")
+    await progress_msg.edit_text("📦 Compressione file in corso...")
     
     MAX_ZIP_SIZE = 48 * 1024 * 1024  # 48 MB di margine di sicurezza
     zip_parts = []
@@ -342,7 +367,7 @@ async def _process_track_list(message, titles: list[str]):
 
     # 3. Invio dei file e Cleanup
     for i, z_path in enumerate(zip_parts):
-        await message.reply_text(f"🚀 Invio archivio {i+1}/{len(zip_parts)}...")
+        await progress_msg.edit_text(f"🚀 Invio archivio {i+1}/{len(zip_parts)}...")
         try:
             with open(z_path, "rb") as doc:
                 await message.reply_document(document=InputFile(doc, filename=os.path.basename(z_path)))
@@ -355,7 +380,13 @@ async def _process_track_list(message, titles: list[str]):
 
     # Distruzione della directory temporanea con i file MP3
     shutil.rmtree(batch_dir, ignore_errors=True)
-    await message.reply_text("🎉 Playlist consegnata! Tracce sul server eliminate.")
+    
+    # Resoconto finale
+    summary = f"🎉 Playlist consegnata!\n✅ {len(downloaded_files)} brani scaricati"
+    if failed_tracks:
+        summary += f"\n⚠ {len(failed_tracks)} non scaricabili"
+    summary += "\nTracce sul server eliminate."
+    await progress_msg.edit_text(summary)
 
     
 # ─────────────────────────────────────────────────────────────────────────────

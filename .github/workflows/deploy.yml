@@ -3,14 +3,14 @@ name: Deploy Bot
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Permette trigger manuale
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -25,33 +25,38 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
     - name: Test bot initialization
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-      run: python << 'EOF'
-import sys
-import os
-from pathlib import Path
+      run: |
+        python - << 'EOF'
+        import os
+        import sys
+        from pathlib import Path
 
-# Simula le variabili di ambiente
-os.environ['TELEGRAM_TOKEN'] = os.getenv('TELEGRAM_TOKEN', '')
-os.environ['SPOTIFY_CLIENT_ID'] = os.getenv('SPOTIFY_CLIENT_ID', '')
-os.environ['SPOTIFY_CLIENT_SECRET'] = os.getenv('SPOTIFY_CLIENT_SECRET', '')
+        # Verifica variabili di ambiente
+        print(f"Checking environment...")
+        t_token = os.getenv('TELEGRAM_TOKEN')
+        s_id = os.getenv('SPOTIFY_CLIENT_ID')
 
-# Verifica che i moduli siano importabili
-try:
-    import yt_dlp
-    import requests
-    from telegram.ext import ApplicationBuilder
-    print('✓ All required modules loaded successfully')
-except ImportError as e:
-    print(f'✗ Import error: {e}')
-    sys.exit(1)
-EOF
+        if not t_token or not s_id:
+            print("✗ Missing critical secrets!")
+            # Non usciamo con errore qui se vuoi solo testare gli import
+        
+        # Verifica che i moduli siano importabili
+        try:
+            import yt_dlp
+            import requests
+            from telegram.ext import ApplicationBuilder
+            print('✓ All required modules loaded successfully')
+        except ImportError as e:
+            print(f'✗ Import error: {e}')
+            sys.exit(1)
+        EOF
 
     - name: Notify on success
       if: success()
@@ -59,6 +64,4 @@ EOF
 
     - name: Notify on failure
       if: failure()
-      run: |
-        echo "✗ Bot deployment check failed!"
-        exit 1
+      run: echo "✗ Bot deployment check failed!"
